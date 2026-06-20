@@ -1,36 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function App() {
-  const [videos, setVideos] = useState([
-    
-  ]);
-
+  const [videos, setVideos] = useState([]);
   const [muted, setMuted] = useState(true);
   const videoRefs = useRef({});
-
-  /* PLAY / PAUSE */
-  const handlePlayPause = (id) => {
-    const video = videoRefs.current[id];
-    if (!video) return;
-
-    if (video.paused) {
-      video.play();
-    } else {
-      video.pause();
-    }
-  };
 
   const handleVideoClick = async (id) => {
     const video = videoRefs.current[id];
     if (!video) return;
   
-    // pause others first (IMPORTANT)
+    // pause others first
     Object.keys(videoRefs.current).forEach((key) => {
       const v = videoRefs.current[key];
       if (v && Number(key) !== id) {
         v.pause();
       }
-     
     });
   
     // wait for pause to settle
@@ -48,19 +32,6 @@ export default function App() {
     }
   };
 
-  /* STOP OTHERS */
-  const pauseOthers = (currentId) => {
-    Object.keys(videoRefs.current).forEach((key) => {
-      const vid = videoRefs.current[key];
-
-      if (!vid) return;
-
-      if (Number(key) !== currentId) {
-        vid.pause();
-      }
-    });
-  };
-
   /* UPLOAD */
   const handleUpload = async (e) => {
     const file = e.target.files[0];
@@ -76,49 +47,45 @@ export default function App() {
       });
   
       const data = await res.json();
-
-      console.log(data)
-  
-      // add cloudinary video to feed
-    
+      console.log(data);
+      
+      // OPTIONAL: Add uploaded video to UI immediately if backend returns it
+      // setVideos((prev) => [{ id: data.id, url: data.videoURL, publicId: data.publicId }, ...prev]);
   
     } catch (err) {
       console.error("Upload failed:", err);
     }
   };
 
+  /* FETCH VIDEOS (FIXED LOOP) */
   useEffect(() => {
-    async function getData(){
-      try{
+    async function getData() {
+      try {
         const fetchVideo = await fetch("https://tiktok-backend-eta.vercel.app/get-videos", {
-          method: "get",
+          method: "GET",
         });
 
         const data = await fetchVideo.json();
 
-        data.map((value,index) => {
-          setVideos((prev) => [
-            { id: value.id, url: value.videoURL, publicId : value.publicId },
-            ...prev,
-          ]);
+        // FIX: Map the backend objects into a clean array and update state ONCE
+        const formattedVideos = data.map((value) => ({
+          id: value.id,
+          url: value.videoURL,
+          publicId: value.publicId,
+        }));
 
-        })
-
-    
-      }
-
-      catch(e){
-        return console.log("error occured")
+        setVideos(formattedVideos);
+      } catch (e) {
+        console.error("Error occurred while fetching videos:", e);
       }
     }
 
-    getData()
-  },[])
-  /* TOGGLE MUTE (apply to all existing refs too) */
+    getData();
+  }, []);
+
+  /* TOGGLE MUTE */
   const toggleMute = () => {
     setMuted((prev) => !prev);
-
-    // force update all current video elements immediately
     Object.values(videoRefs.current).forEach((video) => {
       if (video) video.muted = !muted;
     });
@@ -131,16 +98,18 @@ export default function App() {
     });
   }, [videos, muted]);
 
-  const deleteVideo = async (id) => {
-
-    const confirmation = window.confirm("Are you sure want to delete ?");
-    if(!confirmation) return
+  /* DELETE VIDEO */
+  const deleteVideo = async (id, publicId) => {
+    const confirmation = window.confirm("Are you sure want to delete?");
+    if (!confirmation) return;
+    
     try {
-      await fetch(`https://tiktok-backend-eta.vercel.app/video/${id}`, {
+      // Note: Make sure your backend expects id or publicId here
+      await fetch(`https://tiktok-backend-eta.vercel.app/video/${publicId}`, {
         method: "DELETE",
       });
   
-      // remove from UI instantly
+      // remove from UI instantly using unique backend id
       setVideos((prev) => prev.filter((v) => v.id !== id));
   
     } catch (err) {
@@ -178,21 +147,16 @@ export default function App() {
 
       {/* FEED */}
       <div className="h-screen w-full md:w-[40%] bg-black overflow-hidden border-x border-gray-800">
-
         <div className="h-screen overflow-y-scroll snap-y snap-mandatory">
 
-          {videos && videos.map((video, index) => {
-            console.log(video)
-            return <div
-              key={index}
+          {videos && videos.map((video) => (
+            <div
+              key={video.id} // FIX: Changed from index to unique video.id
               className="h-screen w-full snap-start relative flex items-center justify-center"
-              onClick={() => {
-                handleVideoClick(video.id)
-              }}
+              onClick={() => handleVideoClick(video.id)}
             >
-
               <video
-                ref={(el) => (videoRefs.current[video.id] = el)}
+                ref={(el) => { videoRefs.current[video.id] = el; }}
                 src={video.url}
                 className="h-full w-full object-cover"
                 autoPlay
@@ -211,13 +175,19 @@ export default function App() {
 
               {/* Actions */}
               <div className="absolute right-4 bottom-20 flex flex-col gap-6 text-white items-center">
-                <button>❤️</button>
-                <button>💬</button>
-                <button onClick={()=>deleteVideo(video.publicId)}>🗑️</button>
+                <button onClick={(e) => e.stopPropagation()}>❤️</button>
+                <button onClick={(e) => e.stopPropagation()}>💬</button>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation(); // Prevents video play toggle when clicking delete
+                    deleteVideo(video.id, video.publicId);
+                  }}
+                >
+                  🗑️
+                </button>
               </div>
-
             </div>
-})}
+          ))}
 
         </div>
       </div>
